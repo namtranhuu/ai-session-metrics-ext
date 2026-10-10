@@ -1,0 +1,127 @@
+{
+  "name": "ai-session-metrics",
+  "publisher": "namth587",
+  "displayName": "AI Session Metrics",
+  "description": "Companion extension that displays real-time context size, token usage, and estimated cost across Claude Code, Gemini, and Codex.",
+  "version": "1.0.0",
+  "icon": "images/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/namtranhuu/ai-session-metrics-ext.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ai-session-metrics.showDetails",
+        "title": "AI Session Metrics: Show Details"
+      }
+    ],
+    "configuration": [
+      {
+        "title": "AI Session Metrics - Claude",
+        "properties": {
+          "aiSessionMetrics.claude.enabled": {
+            "order": 1,
+            "type": "boolean",
+            "default": true,
+            "description": "Enable metrics tracking for Claude Code."
+          },
+          "aiSessionMetrics.claude.inputCostPer1M": {
+            "order": 2,
+            "type": "number",
+            "default": 3,
+            "description": "Cost per 1M input tokens for Claude."
+          },
+          "aiSessionMetrics.claude.outputCostPer1M": {
+            "order": 3,
+            "type": "number",
+            "default": 15,
+            "description": "Cost per 1M output tokens for Claude."
+          }
+        }
+      },
+      {
+        "title": "AI Session Metrics - Gemini",
+        "properties": {
+          "aiSessionMetrics.gemini.enabled": {
+            "order": 1,
+            "type": "boolean",
+            "default": true,
+            "description": "Enable metrics tracking for Gemini."
+          },
+          "aiSessionMetrics.gemini.inputCostPer1M": {
+            "order": 2,
+            "type": "number",
+            "default": 0.075,
+            "description": "Cost per 1M input tokens for Gemini."
+          },
+          "aiSessionMetrics.gemini.outputCostPer1M": {
+            "order": 3,
+            "type": "number",
+            "default": 0.3,
+            "description": "Cost per 1M output tokens for Gemini."
+          }
+        }
+      },
+      {
+        "title": "AI Session Metrics - Codex",
+        "properties": {
+          "aiSessionMetrics.codex.enabled": {
+            "order": 1,
+            "type": "boolean",
+            "default": true,
+            "description": "Enable metrics tracking for Codex."
+          },
+          "aiSessionMetrics.codex.inputCostPer1M": {
+            "order": 2,
+            "type": "number",
+            "default": 2.5,
+            "description": "Cost per 1M input tokens for Codex."
+          },
+          "aiSessionMetrics.codex.outputCostPer1M": {
+            "order": 3,
+            "type": "number",
+            "default": 10,
+            "description": "Cost per 1M output tokens for Codex."
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests",
+    "lint": "eslint src --ext ts",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.5",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^8.71.1",
+    "@typescript-eslint/parser": "^8.71.1",
+    "eslint": "^8.57.1",
+    "jest": "^30.5.2",
+    "ts-jest": "^29.4.14",
+    "ts-loader": "^9.6.2",
+    "typescript": "6.0.3",
+    "webpack": "^5.92.0",
+    "webpack-cli": "^7.2.3"
+  }
+}
