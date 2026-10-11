@@ -9,14 +9,16 @@ jobs:
   publish:
     name: Publish to VS Code Marketplace
     runs-on: ubuntu-latest
+    environment: marketplace # Required for requesting a GitHub token
     permissions:
       contents: write # Required for creating GitHub Releases
+      id-token: write # Required for requesting a GitHub token
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'npm'
@@ -25,17 +27,31 @@ jobs:
         run: npm ci
 
       - name: Install Publisher Tools
-        run: npm install -g @vscode/vsce ovsx
+        run: npm install -g @vscode/vsce
 
       - name: Package VSIX
         run: vsce package
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: '*.vsix'
           generate_release_notes: true
 
-      - name: Publish to VS Code Marketplace
-        run: vsce publish --pat ${{ secrets.VSCE_PAT }}
+      - name: Login to Azure
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Get identity details
+        run: |
+          echo "=== Fetching Identity Details ==="
+          IDENTITY=$(az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798 2>&1) || true
+          echo "Identity output:"
+          echo "$IDENTITY"
+
+      - name: Publish with Azure Credential
+        run: vsce publish -i *.vsix --skip-duplicate --azure-credential
 

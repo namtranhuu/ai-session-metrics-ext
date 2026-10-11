@@ -57,7 +57,7 @@ describe('ClaudeParser', () => {
     it('should parse claude logs and aggregate metrics', async () => {
         const time = Date.now();
         await writeClaudeProject(root, 'proj1', [
-            { timestamp: new Date(time).toISOString(), type: 'assistant', message: { usage: { input_tokens: 10, output_tokens: 2 } } }
+            { timestamp: new Date(time).toISOString(), type: 'assistant', message: { id: 'msg_1', usage: { input_tokens: 10, output_tokens: 2 } } }
         ]);
 
         let updates = 0;
@@ -74,6 +74,30 @@ describe('ClaudeParser', () => {
         expect(lastMetrics.providerBreakdown.length).toBe(1);
         expect(lastMetrics.providerBreakdown[0].inputTokens).toBe(10);
         expect(lastMetrics.providerBreakdown[0].outputTokens).toBe(2);
+    });
+
+    it('should deduplicate multiple chunks for the same message id', async () => {
+        const time = Date.now();
+        await writeClaudeProject(root, 'proj_dedup', [
+            { timestamp: new Date(time).toISOString(), type: 'assistant', message: { id: 'msg_dedup_1', usage: { input_tokens: 15, output_tokens: 5 } } },
+            { timestamp: new Date(time).toISOString(), type: 'assistant', message: { id: 'msg_dedup_1', usage: { input_tokens: 15, output_tokens: 5 } } },
+            { timestamp: new Date(time).toISOString(), type: 'assistant', message: { id: 'msg_dedup_1', usage: { input_tokens: 15, output_tokens: 5 } } }
+        ]);
+
+        let updates = 0;
+        let lastMetrics: any;
+        parser.onMetricsUpdated = (m) => {
+            updates++;
+            lastMetrics = m;
+        };
+
+        parser.start();
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        expect(updates).toBeGreaterThan(0);
+        expect(lastMetrics.providerBreakdown.length).toBe(1);
+        expect(lastMetrics.providerBreakdown[0].inputTokens).toBe(15);
+        expect(lastMetrics.providerBreakdown[0].outputTokens).toBe(5);
     });
     it('should parse claude cost-state logs', async () => {
         const time = Date.now();

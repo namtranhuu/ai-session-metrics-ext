@@ -72,7 +72,10 @@ function showDetailsPanel() {
 }
 
 function formatTokens(tokens: number): string {
-    return tokens >= 1000 ? (tokens / 1000).toFixed(1) + 'K' : tokens.toString();
+    if (tokens >= 1000000000) return (tokens / 1000000000).toFixed(1) + 'B';
+    if (tokens >= 1000000) return (tokens / 1000000).toFixed(1) + 'M';
+    if (tokens >= 1000) return (tokens / 1000).toFixed(1) + 'K';
+    return tokens.toString();
 }
 
 function formatCost(costUSD: number | null): string {
@@ -118,7 +121,12 @@ function getWebviewContent(nonce: string): string {
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
         const byId = id => document.getElementById(id);
-        function formatTokens(tokens) { return tokens >= 1000 ? (tokens / 1000).toFixed(1) + 'K' : String(tokens); }
+        function formatTokens(tokens) { 
+            if (tokens >= 1000000000) return (tokens / 1000000000).toFixed(1) + 'B';
+            if (tokens >= 1000000) return (tokens / 1000000).toFixed(1) + 'M';
+            if (tokens >= 1000) return (tokens / 1000).toFixed(1) + 'K';
+            return String(tokens); 
+        }
         function appendCell(row, text, strong = false) {
             const cell = document.createElement('td');
             if (strong) {
@@ -179,11 +187,11 @@ function updateStatusBarItem(metrics: AISessionMetrics): void {
     const suffix = metrics.hasUnpricedProviders ? ' (incomplete)' : '';
     tooltip.appendText(`Total Cost: ${prefix}${metrics.totalCostUSD.toFixed(4)}${suffix}\n\n`);
     tooltip.appendText(`Tokens (In/Out): ${formatTokens(metrics.inputTokens)} / ${formatTokens(metrics.outputTokens)}\n\n`);
-    tooltip.appendText(`Live Context: ${metrics.totalLiveContext.toLocaleString()}\n\nProvider Breakdown:`);
+    tooltip.appendText(`Live Context: ${metrics.totalLiveContext > 0 ? formatTokens(metrics.totalLiveContext) : '-'}\n\nProvider Breakdown:`);
     if (metrics.providerBreakdown.length > 0) {
         for (const provider of metrics.providerBreakdown) {
             const live = (provider.liveUncachedTokens || 0) + (provider.liveCachedTokens || 0);
-            tooltip.appendText(`\n\n- ${provider.providerName}: Cost ${formatCost(provider.costUSD)}; Tokens ${provider.inputTokens.toLocaleString()} in | ${live.toLocaleString()} live | ${provider.outputTokens.toLocaleString()} out`);
+            tooltip.appendText(`\n\n- ${provider.providerName}: Cost ${formatCost(provider.costUSD)}; Tokens ${formatTokens(provider.inputTokens)} in | ${live > 0 ? formatTokens(live) : '-'} live | ${formatTokens(provider.outputTokens)} out`);
         }
     } else {
         tooltip.appendText('\n\nNo providers used yet.');

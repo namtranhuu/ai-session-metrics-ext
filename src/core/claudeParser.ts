@@ -36,6 +36,7 @@ type ClaudeFileState = {
         liveCached: number;
         hasLive: boolean;
         lastMessageMs: number;
+        seenMessages: Set<string>;
     };
 };
 
@@ -137,7 +138,7 @@ export class ClaudeParser {
                             dev: stat.dev,
                             ino: stat.ino,
                             pending: '',
-                            usage: { input: 0, cached: 0, output: 0, cost: 0, hasCost: false, hasCostSnapshot: false, assistantAfterCost: { input: 0, cached: 0, output: 0 }, liveUncached: 0, liveCached: 0, hasLive: false, lastMessageMs: 0 }
+                            usage: { input: 0, cached: 0, output: 0, cost: 0, hasCost: false, hasCostSnapshot: false, assistantAfterCost: { input: 0, cached: 0, output: 0 }, liveUncached: 0, liveCached: 0, hasLive: false, lastMessageMs: 0, seenMessages: new Set<string>() }
                         };
                         const length = stat.size - state.size;
                         if (length > 0) {
@@ -187,23 +188,27 @@ export class ClaudeParser {
                 const ms = new Date(data.timestamp).getTime();
                 if (Number.isFinite(ms)) usage.lastMessageMs = Math.max(usage.lastMessageMs, ms);
             }
-            if (data.type === 'assistant' && data.message?.usage) {
-                const record = data.message.usage;
-                const input = Number(record.input_tokens) || 0;
-                const cached = (Number(record.cache_read_input_tokens) || 0) + (Number(record.cache_creation_input_tokens) || 0);
-                const output = Number(record.output_tokens) || 0;
-                usage.liveUncached = input;
-                usage.liveCached = cached;
-                usage.hasLive = true;
-                if (usage.hasCostSnapshot) {
-                    usage.hasCost = false;
-                    usage.assistantAfterCost.input += input;
-                    usage.assistantAfterCost.cached += cached;
-                    usage.assistantAfterCost.output += output;
-                } else {
-                    usage.input += input;
-                    usage.cached += cached;
-                    usage.output += output;
+            if (data.type === 'assistant' && data.message?.usage && data.message?.id) {
+                const msgId = data.message.id;
+                if (!usage.seenMessages.has(msgId)) {
+                    usage.seenMessages.add(msgId);
+                    const record = data.message.usage;
+                    const input = Number(record.input_tokens) || 0;
+                    const cached = (Number(record.cache_read_input_tokens) || 0) + (Number(record.cache_creation_input_tokens) || 0);
+                    const output = Number(record.output_tokens) || 0;
+                    usage.liveUncached = input;
+                    usage.liveCached = cached;
+                    usage.hasLive = true;
+                    if (usage.hasCostSnapshot) {
+                        usage.hasCost = false;
+                        usage.assistantAfterCost.input += input;
+                        usage.assistantAfterCost.cached += cached;
+                        usage.assistantAfterCost.output += output;
+                    } else {
+                        usage.input += input;
+                        usage.cached += cached;
+                        usage.output += output;
+                    }
                 }
             } else if (data.type === 'cost-state' && data.modelUsage && typeof data.modelUsage === 'object') {
                 const snapshot = { input: 0, cached: 0, output: 0, cost: 0 };

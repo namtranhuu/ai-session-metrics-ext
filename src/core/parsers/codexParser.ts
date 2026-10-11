@@ -3,7 +3,8 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { execFile } from 'child_process';
+import * as fs from 'fs';
+import initSqlJs from 'sql.js';
 import { ProviderUsage } from '../claudeParser';
 
 interface CodexProjectUsage {
@@ -51,82 +52,101 @@ export class CodexParser {
         const generation = this.queryGeneration;
         try {
             const activeThreshold = Date.now() - 10 * 60 * 1000;
-            const queryState = `SELECT id, cwd, updated_at_ms, tokens_used FROM threads WHERE updated_at_ms > ${activeThreshold};`;
-            const stateResult = await new Promise<string>((resolve, reject) => {
-                execFile('sqlite3', [this.stateDbPath, queryState], (error, stdout) => {
-                    if (error) reject(error);
-                    else resolve(stdout.trim());
-                });
+            
+            const SQL = await initSqlJs({ 
+                locateFile: () => {
+                    const distPath = path.join(__dirname, 'sql-wasm.wasm');
+                    if (fs.existsSync(distPath)) return distPath;
+                    // Fallback for Jest tests running from src/
+                    return path.join(__dirname, '..', '..', '..', 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm');
+                } 
             });
             
+            let stateDb: any;
+            try {
+                const stateBuf = await fs.promises.readFile(this.stateDbPath);
+                stateDb = new SQL.Database(stateBuf);
+            } catch (err) {
+                // Ignore missing file
+            }
+
             const newProjects = new Map<string, CodexProjectUsage>();
-            if (stateResult) {
-                const lines = stateResult.split('\n');
-                const threadIds: string[] = [];
-                
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    const parts = line.split('|');
-                    const threadId = parts[0];
-                    const cwd = parts[1];
-                    const lastUpdatedDb = parseInt(parts[2], 10) || Date.now();
-                    const totalTokens = parseInt(parts[3], 10) || 0;
-                    
-                    if (cwd && threadId) {
-                        newProjects.set(threadId, {
-                            cwd,
-                            threadId,
-                            inputTokens: Math.floor(totalTokens * 0.8),
-                            outputTokens: Math.floor(totalTokens * 0.2),
-                            lastUpdatedMs: lastUpdatedDb,
-                            liveContextTokens: 0
-                        });
-                        threadIds.push(threadId);
+            const threadIds: string[] = [];
+
+            if (stateDb) {
+                const queryState = `SELECT id, cwd, updated_at_ms, tokens_used FROM threads WHERE updated_at_ms > ${activeThreshold};`;
+                try {
+                    const stateResult = stateDb.exec(queryState);
+                    if (stateResult.length > 0) {
+                        for (const row of stateResult[0].values) {
+                            const threadId = row[0] as string;
+                            const cwd = row[1] as string;
+                            const lastUpdatedDb = (row[2] as number) || Date.now();
+                            const totalTokens = (row[3] as number) || 0;
+                            
+                            if (cwd && threadId) {
+                                newProjects.set(threadId, {
+                                    cwd,
+                                    threadId,
+                                    inputTokens: Math.floor(totalTokens * 0.8),
+                                    outputTokens: Math.floor(totalTokens * 0.2),
+                                    lastUpdatedMs: lastUpdatedDb,
+                                    liveContextTokens: 0
+                                });
+                                threadIds.push(threadId);
+                            }
+                        }
                     }
+                } finally {
+                    stateDb.close();
                 }
                 
                 if (threadIds.length > 0) {
+                    let historyDb: any;
                     try {
-                        const idList = threadIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
-                        const queryHistory = `SELECT thread_id, SUM(LENGTH(item_json)) FROM thread_items WHERE thread_id IN (${idList}) GROUP BY thread_id;`;
-                        const historyResult = await new Promise<string>((resolve, reject) => {
-                            execFile('sqlite3', [this.dbPath, queryHistory], (error, stdout) => {
-                                if (error) reject(error);
-                                else resolve(stdout.trim());
-                            });
-                        });
-                        
-                        for (const line of historyResult.split('\n')) {
-                            if (!line.trim()) continue;
-                            const parts = line.split('|');
-                            const threadId = parts[0];
-                            const size = parseInt(parts[1], 10) || 0;
-                            const p = newProjects.get(threadId);
-                            if (p) p.liveContextTokens = Math.floor(size / 4);
-                        }
+                        const historyBuf = await fs.promises.readFile(this.dbPath);
+                        historyDb = new SQL.Database(historyBuf);
                     } catch {
-                        // Ignore history DB errors
+                        // Ignore
+                    }
+
+                    if (historyDb) {
+                        try {
+                            const idList = threadIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+                            const queryHistory = `SELECT thread_id, SUM(LENGTH(item_json)) FROM thread_items WHERE thread_id IN (${idList}) GROUP BY thread_id;`;
+                            const historyResult = historyDb.exec(queryHistory);
+                            
+                            if (historyResult.length > 0) {
+                                for (const row of historyResult[0].values) {
+                                    const threadId = row[0] as string;
+                                    const size = (row[1] as number) || 0;
+                                    const p = newProjects.get(threadId);
+                                    if (p) p.liveContextTokens = Math.floor(size / 4);
+                                }
+                            }
+                        } catch {
+                            // Ignore history DB errors
+                        } finally {
+                            historyDb.close();
+                        }
                     }
 
                     for (const threadId of threadIds) {
                         try {
-                            const stdout = await new Promise<string>((resolve, reject) => {
-                                execFile('find', [path.join(os.homedir(), '.codex', 'sessions'), '-type', 'f', '-name', `*-${threadId}.jsonl`], (error, out) => {
-                                    if (error) reject(error);
-                                    else resolve(out.trim());
-                                });
-                            });
-                            const files = stdout.split('\n').filter(Boolean);
-                            if (files.length > 0) {
-                                const grepOut = await new Promise<string>((resolve, reject) => {
-                                    execFile('grep', ['"type":"token_usage_record"', files[0]], (error, out) => {
-                                        if (error) reject(error);
-                                        else resolve(out.trim());
-                                    });
-                                });
-                                const lines = grepOut.split('\n').filter(Boolean);
-                                if (lines.length > 0) {
-                                    const data = JSON.parse(lines[lines.length - 1]);
+                            const sessionsDir = path.join(os.homedir(), '.codex', 'sessions');
+                            const allFiles = await fs.promises.readdir(sessionsDir);
+                            const suffix = `-${threadId}.jsonl`;
+                            const matchedFiles = allFiles.filter(f => f.endsWith(suffix));
+                            
+                            if (matchedFiles.length > 0) {
+                                const filePath = path.join(sessionsDir, matchedFiles[0]);
+                                const fileContent = await fs.promises.readFile(filePath, 'utf8');
+                                const lines = fileContent.split('\n');
+                                
+                                const usageLines = lines.filter(line => line.includes('"type":"token_usage_record"'));
+                                
+                                if (usageLines.length > 0) {
+                                    const data = JSON.parse(usageLines[usageLines.length - 1]);
                                     const usage = data.payload?.thread_token_usage || data.payload?.usage;
                                     if (usage) {
                                         const p = newProjects.get(threadId);
@@ -218,3 +238,4 @@ export class CodexParser {
         }
     }
 }
+

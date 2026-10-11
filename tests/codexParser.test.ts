@@ -1,35 +1,52 @@
 import { CodexParser } from '../src/core/parsers/codexParser';
+import * as fs from 'fs';
+import initSqlJs from 'sql.js';
 
-jest.mock('child_process', () => ({
-    execFile: jest.fn((cmd, args, callback) => {
-        if (cmd === 'sqlite3') {
-            if (args[1].includes('SELECT id, cwd')) {
-                // mock stateDb
-                const active = Date.now();
-                callback(null, `thread123|/home/user/my-codex-project|${active}|100\n`);
-                return;
-            } else if (args[1].includes('SUM(LENGTH')) {
-                // mock historyDb
-                callback(null, `thread123|500\n`);
-                return;
-            }
-        } else if (cmd === 'find') {
-            callback(null, `/fake/path/session-thread123.jsonl\n`);
-            return;
-        } else if (cmd === 'grep') {
-            const usage = { payload: { usage: { input_tokens: 50, output_tokens: 10 } } };
-            callback(null, JSON.stringify(usage) + '\n');
-            return;
-        }
-        callback(null, '');
-    })
+jest.mock('fs', () => ({
+    existsSync: jest.fn(() => true),
+    promises: {
+        readFile: jest.fn(),
+        readdir: jest.fn()
+    }
 }));
+
+jest.mock('sql.js', () => {
+    return jest.fn();
+});
 
 describe('CodexParser', () => {
     let parser: CodexParser;
+    let mockExecState: jest.Mock;
+    let mockExecHistory: jest.Mock;
 
     beforeEach(() => {
         jest.clearAllMocks();
+
+        mockExecState = jest.fn();
+        mockExecHistory = jest.fn();
+
+        (initSqlJs as unknown as jest.Mock).mockResolvedValue({
+            Database: jest.fn().mockImplementation((buf) => {
+                // If it's state buf (1) or history buf (2)
+                return {
+                    exec: buf === 'state-db' ? mockExecState : mockExecHistory,
+                    close: jest.fn()
+                };
+            })
+        });
+
+        (fs.promises.readFile as jest.Mock).mockImplementation(async (path: string) => {
+            if (path.includes('state')) return 'state-db';
+            if (path.includes('history')) return 'history-db';
+            if (path.includes('.jsonl')) {
+                const usage = { payload: { usage: { input_tokens: 50, output_tokens: 10 } } };
+                return JSON.stringify({ type: "other" }) + '\n' + JSON.stringify({ type: "token_usage_record", ...usage }) + '\n';
+            }
+            return '';
+        });
+
+        (fs.promises.readdir as jest.Mock).mockResolvedValue(['session-thread123.jsonl']);
+
         parser = new CodexParser();
     });
 
@@ -40,6 +57,13 @@ describe('CodexParser', () => {
     it('should query sqlite and parse codex usage', async () => {
         let updates = 0;
         parser.onUpdate = () => updates++;
+
+        mockExecState.mockReturnValue([
+            { values: [['thread123', '/home/user/my-codex-project', Date.now(), 100]] }
+        ]);
+        mockExecHistory.mockReturnValue([
+            { values: [['thread123', 500]] }
+        ]);
 
         parser.start();
         
@@ -52,17 +76,16 @@ describe('CodexParser', () => {
         expect(usage[0].providerName).toContain('my-codex-project');
         expect(updates).toBeGreaterThan(0);
     });
+
     it('should detect usage changes', async () => {
         let call = 0;
-        const mockExec = require('child_process').execFile;
-        mockExec.mockImplementation((cmd: string, args: any[], callback: any) => {
-            if (cmd === 'sqlite3' && args[1].includes('SELECT id, cwd')) {
-                callback(null, `thread1|/home/proj|${Date.now()}|${call === 0 ? 100 : 200}\n`);
-                call++;
-                return;
-            }
-            callback(null, '');
+        mockExecState.mockImplementation(() => {
+            const val = call === 0 ? 100 : 200;
+            call++;
+            return [{ values: [['thread1', '/home/proj', Date.now(), val]] }];
         });
+        mockExecHistory.mockReturnValue([]);
+        (fs.promises.readdir as jest.Mock).mockResolvedValue([]);
 
         let updates = 0;
         parser.onUpdate = () => updates++;
@@ -74,9 +97,8 @@ describe('CodexParser', () => {
     });
 
     it('should handle sqlite errors', async () => {
-        const mockExec = require('child_process').execFile;
-        mockExec.mockImplementation((cmd: string, args: any[], callback: any) => {
-            callback(new Error('Mock SQLite Error'), null);
+        mockExecState.mockImplementation(() => {
+            throw new Error('Mock SQLite Error');
         });
         
         parser.start();
@@ -84,3 +106,4 @@ describe('CodexParser', () => {
         expect(parser.getUsage()?.length || 0).toBe(0);
     });
 });
+

@@ -10,7 +10,7 @@
 
 - **Live Status Bar Monitoring**: See a real-time summary of your current session's token consumption in the VS Code status bar.
 - **Detailed Metrics Panel**: Click the status bar item (or run the `AI Session Metrics: Show Details` command) to open a comprehensive breakdown of all tracked sessions.
-- **Multi-Provider Support**: 
+- **Multi-Provider Support**:
   - **Claude Code**: Tracks context usage for local Claude Code sessions.
   - **Gemini**: Supports real-time monitoring of Gemini token usage and costs.
   - **Codex**: Monitors Codex thread history and usage metrics.
@@ -69,9 +69,16 @@ If you want to compile and modify the extension locally:
 npm install
 npm run compile
 # Package to VSIX
-npm run package 
+npm run package
 ```
 
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## Legal
+
+- [Privacy Policy](https://namtranhuu.github.io/privacy-policy/)
+- [Terms of Use](https://namtranhuu.github.io/privacy-policy/terms-of-use)
+
+Please review these documents before using the software. Third-party services and their own terms may also apply.
